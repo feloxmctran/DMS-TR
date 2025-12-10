@@ -1,0 +1,61 @@
+/* ---- Global reset (mobil WebView sağ boşluk fix) ---- */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body, #root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;   /* yatay taşmayı kes */
+  background: #ffffff;  /* koyu arka planı sabit beyaz yap */
+  color: #0f172a;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* İsteğe bağlı: koyu/auto tema davranışını kapat */
+:root { color-scheme: light; }
+/* ==== Kamera tam ekran overlay (Stock Count Fast) ==== */
+
+/* İstersen body'e küçük bir flag */
+body.scanning {
+  background: #000;
+}
+
+/* Tam ekran kaplayan konteyner */
+.barcode-scanner-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+}
+
+/* MLKit önizleme buraya render edilecek */
+#barcode-scanner-preview {
+  flex: 1;
+}
+
+/* Alttaki kontrol barı */
+.barcode-scanner-controls {
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.barcode-scanner-controls button {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid #fff;
+  background: transparent;
+  color: #fff;
+  font-weight: 700;
+}

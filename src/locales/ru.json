@@ -1,0 +1,38 @@
+{
+  "result": {
+    "cards": {
+      "result": "Результат запроса",
+      "history": "История запросов",
+      "detail": "Детали"
+    },
+    "fields": {
+      "productName": "Наименование продукта",
+      "gtin": "GTIN",
+      "serialNumber": "Серийный номер",
+      "batchNumber": "Партия / Batch",
+      "productionDate": "Дата производства",
+      "expirationDate": "Срок годности",
+      "stakeHolderName": "Стейкхолдер",
+      "isAvailableForSale": "Доступен для продажи?",
+      "isSuspendedOrRecalled": "Приостановлен/Отзыв?",
+      "manufacturerName": "Производитель",
+      "certificateNumber": "Номер сертификата",
+      "overallRetailPrice": "Розничная цена (общая)",
+      "isExpired": "Просрочен?",
+      "productStatus": "Статус продукта",
+      "productState": "Состояние продукта",
+      "suspendRecallInfo": "Инфо о приост./отзыве",
+      "isFomsDrug": "Препарат ФОМС?"
+    },
+    "history": {
+      "headers": {
+        "declarationNumber": "№ декларации",
+        "stakeHolder": "Стейкхолдер",
+        "state": "Статус",
+        "stateDate": "Дата",
+        "price": "Цена"
+      }
+    },
+    "empty": "Пока нет результата. Отсканируйте или используйте Manual Check."
+  }
+}

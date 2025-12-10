@@ -1,0 +1,38 @@
+{
+  "result": {
+    "cards": {
+      "result": "Query Result",
+      "history": "Query History",
+      "detail": "Detail"
+    },
+    "fields": {
+      "productName": "Product Name",
+      "gtin": "GTIN",
+      "serialNumber": "SN",
+      "batchNumber": "Lot / Batch",
+      "productionDate": "Production Date",
+      "expirationDate": "Expiry Date",
+      "stakeHolderName": "Stakeholder",
+      "isAvailableForSale": "Available for Sale?",
+      "isSuspendedOrRecalled": "Suspended/Recall?",
+      "manufacturerName": "Manufacturer",
+      "certificateNumber": "Certificate No",
+      "overallRetailPrice": "Retail Price Overall",
+      "isExpired": "Expired?",
+      "productStatus": "Product Status",
+      "productState": "Product State",
+      "suspendRecallInfo": "Suspend/Recall Info",
+      "isFomsDrug": "FOMS Drug?"
+    },
+    "history": {
+      "headers": {
+        "declarationNumber": "Declaration No",
+        "stakeHolder": "Stakeholder",
+        "state": "State",
+        "stateDate": "Date",
+        "price": "Price"
+      }
+    },
+    "empty": "No result yet. Scan or use Manual Check."
+  }
+}

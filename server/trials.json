@@ -1,0 +1,37 @@
+{
+  "defaultDays": 14,
+  "trials": [
+    {
+      "stakeholderId": "128897",
+      "partnerId": "128898",
+      "stakeholderName": "",
+      "devices": [
+        {
+          "deviceId": "39157c62-93d9-4435-8bd8-cb2a336060171763043866098",
+          "createdAt": "2025-11-17T11:16:09.472Z",
+          "expiresAt": "2025-12-11T07:37:52.552Z",
+          "extensionRequested": false
+        },
+        {
+          "deviceId": "8c70d7a1-cca9-4dc0-91c5-fb72571f4cf91763127744650",
+          "createdAt": "2025-11-17T14:06:49.838Z",
+          "expiresAt": "2025-12-15T14:41:38.151Z",
+          "extensionRequested": false
+        }
+      ]
+    },
+    {
+      "stakeholderId": "213",
+      "partnerId": "13588",
+      "stakeholderName": "",
+      "devices": [
+        {
+          "deviceId": "8c70d7a1-cca9-4dc0-91c5-fb72571f4cf91763127744650",
+          "createdAt": "2025-11-26T12:52:07.849Z",
+          "expiresAt": "2025-12-10T12:52:07.849Z",
+          "extensionRequested": false
+        }
+      ]
+    }
+  ]
+}
