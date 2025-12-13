@@ -29,7 +29,7 @@
 
         <!-- Ana Capacitor activity -->
         <activity
-            android:name=".MainActivity"
+            android:name="com.example.datamatrix.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:theme="@style/AppTheme.NoActionBarLaunch"
@@ -43,7 +43,7 @@
 
         <!-- FAST için yeni kamera ekranı -->
         <activity
-            android:name=".FastMultiScanActivity"
+            android:name="com.example.datamatrix.FastMultiScanActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
 

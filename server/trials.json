@@ -17,6 +17,12 @@
           "createdAt": "2025-11-17T14:06:49.838Z",
           "expiresAt": "2025-12-15T14:41:38.151Z",
           "extensionRequested": false
+        },
+        {
+          "deviceId": "bcfaca99-4108-48ad-a3bf-98f20a12af941765381658213",
+          "createdAt": "2025-12-12T06:45:24.161Z",
+          "expiresAt": "2025-12-19T06:46:44.203Z",
+          "extensionRequested": false
         }
       ]
     },
@@ -29,6 +35,81 @@
           "deviceId": "8c70d7a1-cca9-4dc0-91c5-fb72571f4cf91763127744650",
           "createdAt": "2025-11-26T12:52:07.849Z",
           "expiresAt": "2025-12-10T12:52:07.849Z",
+          "extensionRequested": false
+        }
+      ]
+    },
+    {
+      "stakeholderId": "UYGAR",
+      "partnerId": "",
+      "stakeholderName": "",
+      "devices": [
+        {
+          "deviceId": "bcfaca99-4108-48ad-a3bf-98f20a12af941765381658213",
+          "createdAt": "2025-12-12T07:08:07.766Z",
+          "expiresAt": "2025-12-26T07:08:07.766Z",
+          "extensionRequested": false
+        }
+      ]
+    },
+    {
+      "stakeholderId": "UYGAR ECZANES",
+      "partnerId": "",
+      "stakeholderName": "",
+      "devices": [
+        {
+          "deviceId": "bcfaca99-4108-48ad-a3bf-98f20a12af941765381658213",
+          "createdAt": "2025-12-12T07:09:27.067Z",
+          "expiresAt": "2025-12-26T07:09:27.067Z",
+          "extensionRequested": false
+        }
+      ]
+    },
+    {
+      "stakeholderId": "UYGAR ECZANESI",
+      "partnerId": "",
+      "stakeholderName": "",
+      "devices": [
+        {
+          "deviceId": "bcfaca99-4108-48ad-a3bf-98f20a12af941765381658213",
+          "createdAt": "2025-12-12T07:09:37.655Z",
+          "expiresAt": "2025-12-26T07:09:37.655Z",
+          "extensionRequested": false
+        },
+        {
+          "deviceId": "e93359a1-b6a2-40d2-982c-36697ca878dd1765528056157",
+          "createdAt": "2025-12-12T08:28:27.303Z",
+          "expiresAt": "2025-12-26T08:28:27.303Z",
+          "extensionRequested": false
+        },
+        {
+          "deviceId": "3a502f50-d99a-4f02-bf50-b1d7542876e01765530012220",
+          "createdAt": "2025-12-12T09:00:24.155Z",
+          "expiresAt": "2025-12-26T09:00:24.155Z",
+          "extensionRequested": false
+        },
+        {
+          "deviceId": "a75d5dd3-890e-4dc5-bd71-378a9690e1071765534826616",
+          "createdAt": "2025-12-12T10:22:21.078Z",
+          "expiresAt": "2025-12-26T10:22:21.078Z",
+          "extensionRequested": false
+        },
+        {
+          "deviceId": "69565e90-b491-4a4a-87ac-d8fd248d0d4a1765536199570",
+          "createdAt": "2025-12-12T10:45:27.923Z",
+          "expiresAt": "2025-12-26T10:45:27.923Z",
+          "extensionRequested": false
+        },
+        {
+          "deviceId": "893a7f42-f8d5-4d11-8bb2-60c1fd0f5f671765541505958",
+          "createdAt": "2025-12-12T12:11:55.282Z",
+          "expiresAt": "2025-12-26T12:11:55.282Z",
+          "extensionRequested": false
+        },
+        {
+          "deviceId": "5893ad56-4931-4cd5-b8f8-7573215f60571765542714042",
+          "createdAt": "2025-12-12T12:32:02.973Z",
+          "expiresAt": "2025-12-26T12:32:02.973Z",
           "extensionRequested": false
         }
       ]

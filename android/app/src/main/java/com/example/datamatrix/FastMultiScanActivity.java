@@ -62,6 +62,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+import tr.com.dmstr.app.R;
+
+
 @ExperimentalGetImage   // getImage() için
 public class FastMultiScanActivity extends AppCompatActivity {
 
@@ -271,9 +274,14 @@ public class FastMultiScanActivity extends AppCompatActivity {
                             // İlk kez görüyorsak sete ekle
                             if (scannedCodes.add(rawValue)) {
                                 changed = true;
-                                // Doğrulama kuyruğuna ekle
-                                enqueueForValidation(rawValue);
+
+                                // API doğrulaması yok: "okundu ve listeye eklendi" demek için direkt yeşil işaretle
+                                codeStatusMap.put(rawValue, CodeStatus.SELLABLE);
+
+                                // doğrulama kuyruğuna göndermiyoruz
+                                // enqueueForValidation(rawValue);
                             }
+
                         }
                     }
 

@@ -25,6 +25,12 @@ export interface ImportInitialProductsResult {
   count: number;
 }
 
+// SYNC sonucu (Java: { added, updated })
+export interface SyncProductsResult {
+  added: number;
+  updated: number;
+}
+
 // Stok raporu satırı
 export interface StockReportRow {
   gtin: string | null;
@@ -43,17 +49,23 @@ export interface GetStockReportResult {
 
 // Plugin interface
 export interface FastStockScannerPlugin {
-  startMultiScan(options: { durationMs?: number; skipNote?: boolean }): Promise<StartMultiScanResult>;
-
+  startMultiScan(options: {
+    durationMs?: number;
+    skipNote?: boolean;
+  }): Promise<StartMultiScanResult>;
 
   getScanSessions(): Promise<{ sessions: ScanSession[] }>;
 
-  deleteScanSession(options: { id: number }): Promise<{ success: boolean }>;
+  // Java: { deleted: number }
+  deleteScanSession(options: { id: number }): Promise<{ deleted: number }>;
 
   // initial ürün import metodu
   importInitialProducts(options: {
     items: ProductRow[];
   }): Promise<ImportInitialProductsResult>;
+
+  // SYNC (UPSERT)
+  syncProducts(options: { items: ProductRow[] }): Promise<SyncProductsResult>;
 
   // stok raporu metodu
   getStockReport(options: {

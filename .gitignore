@@ -6,3 +6,27 @@ build/
 *.keystore
 *.jks
 capacitor.config.local.*
+
+# Logs
+*.log
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Vite cache
+.vite/
+
+# Android (Capacitor) - machine specific & build outputs
+android/local.properties
+android/.gradle/
+android/.idea/
+android/app/build/
+android/build/
+
+# iOS (if ever)
+ios/Pods/
+ios/build/
+

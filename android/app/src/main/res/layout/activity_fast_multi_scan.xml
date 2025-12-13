@@ -6,6 +6,22 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
+    <!-- ÜST güvenli alan: DMS-TR mavi bandı vs. ile çakışmayı önler -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/gTopSafe"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_begin="72dp" />
+
+    <!-- ALT güvenli alan: sistem alt bar (gesture/nav) ile çakışmayı önler -->
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/gBottomSafe"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintGuide_end="72dp" />
+
     <!-- Kamera görüntüsü -->
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
@@ -32,26 +48,41 @@
         android:id="@+id/tvCount"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="12dp"
         android:background="#66000000"
+        android:text="0"
         android:textColor="#FFFFFF"
         android:textSize="28sp"
-        android:text="0"
-        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/gTopSafe"
         app:layout_constraintStart_toStartOf="parent" />
+
+    <!-- Kapat butonu -->
+    <ImageButton
+        android:id="@+id/btnClose"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="12dp"
+        android:background="@android:color/transparent"
+        android:contentDescription="Kapat"
+        android:src="@android:drawable/ic_menu_close_clear_cancel"
+        android:tint="#FFFFFF"
+        app:layout_constraintTop_toBottomOf="@id/gTopSafe"
+        app:layout_constraintEnd_toEndOf="parent" />
 
     <!-- Mesafe uyarısı (çok yakın / çok uzak) -->
     <TextView
         android:id="@+id/tvDistanceHint"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_margin="12dp"
+        android:layout_marginBottom="12dp"
         android:background="#66000000"
+        android:text=""
         android:textColor="#FFCC00"
         android:textSize="14sp"
-        android:text=""
         android:visibility="gone"
-        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/gBottomSafe"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
@@ -60,26 +91,13 @@
         android:id="@+id/btnSave"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:layout_marginEnd="12dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="12dp"
         android:text="Kaydet"
         android:textAllCaps="false"
         android:background="#2E7D32"
         android:textColor="#FFFFFF"
-        app:layout_constraintTop_toBottomOf="@id/tvCount"
-        app:layout_constraintEnd_toEndOf="parent" />
-
-    <!-- Kapat butonu -->
-    <ImageButton
-        android:id="@+id/btnClose"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:layout_margin="16dp"
-        android:background="@android:color/transparent"
-        android:contentDescription="Kapat"
-        android:src="@android:drawable/ic_menu_close_clear_cancel"
-        android:tint="#FFFFFF"
-        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/gBottomSafe"
         app:layout_constraintEnd_toEndOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -27,6 +27,7 @@ const FastStockReportPage: React.FC<FastStockReportPageProps> = ({
     minHeight: "100vh",
     backgroundColor: "#f3f4f6", // açık gri
     padding: 12,
+    paddingTop: 44, // ✅ üstte boşluk (status bar çakışmasını engeller)
     boxSizing: "border-box",
   };
 

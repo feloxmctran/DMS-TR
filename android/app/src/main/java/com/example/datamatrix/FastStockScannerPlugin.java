@@ -71,6 +71,161 @@ public class FastStockScannerPlugin extends Plugin {
         pendingCall = null;
     }
 
+    // =========================================================
+    // ✅ ÜRÜN LİSTESİ IMPORT (products_local doldurur)
+    // Hem brand_name hem name destekler
+    // =========================================================
+    @PluginMethod
+    public void importInitialProducts(PluginCall call) {
+        try {
+            JSArray itemsArr = call.getArray("items");
+            if (itemsArr == null || itemsArr.length() == 0) {
+                JSObject r = new JSObject();
+                r.put("success", false);
+                r.put("count", 0);
+                call.resolve(r);
+                return;
+            }
+
+            ScanDatabaseHelper dbHelper = ScanDatabaseHelper.getInstance(getContext());
+            SQLiteDatabase db = dbHelper.getWritableDatabase();
+
+            int count = 0;
+
+            db.beginTransaction();
+            try {
+                for (int i = 0; i < itemsArr.length(); i++) {
+                    JSONObject o = itemsArr.optJSONObject(i);
+                    if (o == null) continue;
+
+                    String gtin = o.optString("gtin", null);
+                    String brandName = o.optString("brand_name", null);
+                    if (brandName == null || brandName.trim().isEmpty()) {
+                        brandName = o.optString("name", null); // fallback
+                    }
+
+                    if (gtin == null) continue;
+                    gtin = gtin.trim();
+                    if (gtin.isEmpty()) continue;
+
+                    // 14 hane ve başı 0 ise normalize et
+                    if (gtin.length() == 14 && gtin.startsWith("0")) {
+                        gtin = gtin.substring(1);
+                    }
+
+                    if (brandName == null) brandName = "";
+                    brandName = brandName.trim();
+
+                    ContentValues cv = new ContentValues();
+                    cv.put("gtin", gtin);
+                    cv.put("brand_name", brandName);
+
+                    db.insertWithOnConflict("products_local", null, cv, SQLiteDatabase.CONFLICT_REPLACE);
+                    count++;
+                }
+
+                db.setTransactionSuccessful();
+            } finally {
+                db.endTransaction();
+            }
+
+            JSObject r = new JSObject();
+            r.put("success", true);
+            r.put("count", count);
+            call.resolve(r);
+
+        } catch (Exception e) {
+            call.reject("importInitialProducts hata: " + e.getMessage());
+        }
+    }
+
+    // =========================================================
+    // ✅ SYNC PRODUCTS (tam dosya gelir, products_local UPSERT)
+    // App.tsx -> FastStockScanner.syncProducts({ items })
+    //
+    // Döner: { added: number, updated: number }
+    // =========================================================
+    @PluginMethod
+    public void syncProducts(PluginCall call) {
+        try {
+            JSArray itemsArr = call.getArray("items");
+            if (itemsArr == null || itemsArr.length() == 0) {
+                JSObject r = new JSObject();
+                r.put("added", 0);
+                r.put("updated", 0);
+                call.resolve(r);
+                return;
+            }
+
+            ScanDatabaseHelper dbHelper = ScanDatabaseHelper.getInstance(getContext());
+            SQLiteDatabase db = dbHelper.getWritableDatabase();
+
+            int added = 0;
+            int updated = 0;
+
+            db.beginTransaction();
+            try {
+                for (int i = 0; i < itemsArr.length(); i++) {
+                    JSONObject o = itemsArr.optJSONObject(i);
+                    if (o == null) continue;
+
+                    String gtin = o.optString("gtin", null);
+                    String brandName = o.optString("brand_name", null);
+                    if (brandName == null || brandName.trim().isEmpty()) {
+                        brandName = o.optString("name", null);
+                    }
+
+                    if (gtin == null) continue;
+                    gtin = gtin.trim();
+                    if (gtin.isEmpty()) continue;
+
+                    // 14 hane ve başı 0 ise normalize et
+                    if (gtin.length() == 14 && gtin.startsWith("0")) {
+                        gtin = gtin.substring(1);
+                    }
+
+                    if (brandName == null) brandName = "";
+                    brandName = brandName.trim();
+
+                    // var mı? -> added/updated say
+                    boolean exists = false;
+                    Cursor check = null;
+                    try {
+                        check = db.rawQuery(
+                                "SELECT 1 FROM products_local WHERE gtin = ? LIMIT 1",
+                                new String[]{gtin}
+                        );
+                        exists = (check != null && check.moveToFirst());
+                    } finally {
+                        if (check != null) check.close();
+                    }
+
+                    ContentValues cv = new ContentValues();
+                    cv.put("gtin", gtin);
+                    cv.put("brand_name", brandName);
+
+                    // UPSERT
+                    db.insertWithOnConflict("products_local", null, cv, SQLiteDatabase.CONFLICT_REPLACE);
+
+                    if (exists) updated++;
+                    else added++;
+                }
+
+                db.setTransactionSuccessful();
+            } finally {
+                db.endTransaction();
+            }
+
+            JSObject r = new JSObject();
+            r.put("added", added);
+            r.put("updated", updated);
+            call.resolve(r);
+
+        } catch (Exception e) {
+            call.reject("syncProducts hata: " + e.getMessage());
+        }
+    }
+
     // Kayıtlı sayım oturumlarını SQLite'ten okuyup JS'e döndürür
     @PluginMethod
     public void getScanSessions(PluginCall call) {
@@ -142,12 +297,45 @@ public class FastStockScannerPlugin extends Plugin {
         }
     }
 
+    // Tüm scan_items içindeki datamatrix code alanını döndürür
+    @PluginMethod
+    public void getAllScanItems(PluginCall call) {
+        try {
+            ScanDatabaseHelper dbHelper = ScanDatabaseHelper.getInstance(getContext());
+            SQLiteDatabase db = dbHelper.getReadableDatabase();
+
+            Cursor c = db.rawQuery(
+                    "SELECT code FROM scan_items WHERE code IS NOT NULL AND TRIM(code) <> '' ORDER BY id ASC",
+                    null
+            );
+
+            JSArray arr = new JSArray();
+            while (c.moveToNext()) {
+                String code = c.getString(0);
+                if (code != null && !code.trim().isEmpty()) {
+                    arr.put(code);
+                }
+            }
+            c.close();
+
+            JSObject result = new JSObject();
+            result.put("codes", arr);
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("getAllScanItems hata: " + e.getMessage());
+        }
+    }
+
+
     // Oturum ve bağlı scan_items kayıtlarını siler
     @PluginMethod
     public void deleteScanSession(PluginCall call) {
         Long sessionId = call.getLong("sessionId");
         if (sessionId == null) {
-            call.reject("sessionId parametresi zorunlu");
+            sessionId = call.getLong("id"); // ✅ FE uyumu
+        }
+        if (sessionId == null) {
+            call.reject("sessionId (veya id) parametresi zorunlu");
             return;
         }
 
@@ -198,7 +386,24 @@ public class FastStockScannerPlugin extends Plugin {
             sb.append("COUNT(DISTINCT s.code) AS distinctCount, ");
             sb.append("COUNT(s.code) AS totalScans ");
             sb.append("FROM scan_items s ");
-            sb.append("LEFT JOIN products_local p ON p.gtin = s.gtin ");
+            sb.append("LEFT JOIN (");
+            sb.append("  SELECT ");
+            sb.append("    CASE ");
+            sb.append("      WHEN LENGTH(TRIM(CAST(gtin AS TEXT))) = 14 AND SUBSTR(TRIM(CAST(gtin AS TEXT)),1,1)='0' ");
+            sb.append("        THEN SUBSTR(TRIM(CAST(gtin AS TEXT)),2) ");
+            sb.append("      ELSE TRIM(CAST(gtin AS TEXT)) ");
+            sb.append("    END AS gtin_norm, ");
+            sb.append("    brand_name ");
+            sb.append("  FROM products_local ");
+            sb.append(") p ON p.gtin_norm = (");
+            sb.append("  CASE ");
+            sb.append("    WHEN s.gtin IS NULL THEN NULL ");
+            sb.append("    WHEN LENGTH(TRIM(CAST(s.gtin AS TEXT))) = 14 AND SUBSTR(TRIM(CAST(s.gtin AS TEXT)),1,1)='0' ");
+            sb.append("      THEN SUBSTR(TRIM(CAST(s.gtin AS TEXT)),2) ");
+            sb.append("    ELSE TRIM(CAST(s.gtin AS TEXT)) ");
+            sb.append("  END ");
+            sb.append(") ");
+
             sb.append("WHERE s.session_id IN (");
 
             String[] args = new String[sessionIds.size()];
@@ -253,10 +458,8 @@ public class FastStockScannerPlugin extends Plugin {
     public void getEasySales(PluginCall call) {
         try {
             ScanDatabaseHelper dbHelper = ScanDatabaseHelper.getInstance(getContext());
-            // Liste okumak için read-only yeterli
             SQLiteDatabase db = dbHelper.getReadableDatabase();
 
-            // Tüm EASY satışlarını (en son eklenen en üstte olacak şekilde) çekiyoruz
             Cursor c = db.rawQuery(
                     "SELECT s.id, s.created_at, " +
                             " (SELECT COUNT(*) FROM easy_sale_items ei WHERE ei.sale_id = s.id) AS item_count, " +
@@ -273,7 +476,6 @@ public class FastStockScannerPlugin extends Plugin {
                 o.put("id", c.getInt(0));
                 o.put("created_at", c.getString(1));
                 o.put("item_count", c.getInt(2));
-                // NOT alanını da JSON'a ekleyelim (null ise boş string)
                 o.put("note", c.isNull(3) ? "" : c.getString(3));
                 arr.put(o);
             }
@@ -293,7 +495,6 @@ public class FastStockScannerPlugin extends Plugin {
     public void getEasySaleDetail(PluginCall call) {
         JSObject data = call.getData();
 
-        // id parametresini al (id veya saleId)
         Long id = call.getLong("id");
         if (id == null) {
             id = call.getLong("saleId");
@@ -318,7 +519,6 @@ public class FastStockScannerPlugin extends Plugin {
             ScanDatabaseHelper dbHelper = ScanDatabaseHelper.getInstance(getContext());
             SQLiteDatabase db = dbHelper.getReadableDatabase();
 
-            // Önce easy_sales başlığını oku
             Cursor h = db.rawQuery(
                     "SELECT id, created_at, patient, citizen_id, prescription_number, note, device_id " +
                             "FROM easy_sales WHERE id = ? LIMIT 1",
@@ -341,7 +541,6 @@ public class FastStockScannerPlugin extends Plugin {
             result.put("deviceId", h.isNull(6) ? null : h.getString(6));
             h.close();
 
-            // Şimdi easy_sale_items kalemlerini oku
             Cursor c = db.rawQuery(
                     "SELECT id, barcode, brand, sn, status, description, note, unit_price, partial_amount, ndb_success, ndb_message " +
                             "FROM easy_sale_items WHERE sale_id = ? ORDER BY id ASC",
@@ -361,7 +560,6 @@ public class FastStockScannerPlugin extends Plugin {
                 item.put("unitPrice", c.isNull(7) ? null : c.getString(7));
                 item.put("partialAmount", c.isNull(8) ? null : c.getString(8));
 
-                // NDB sonuçlarını da JSON'a ekle
                 if (!c.isNull(9)) {
                     item.put("ndbSuccess", c.getInt(9) == 1);
                 } else {
@@ -384,7 +582,6 @@ public class FastStockScannerPlugin extends Plugin {
     @PluginMethod
     public void saveEasySale(PluginCall call) {
         try {
-            // JS tarafında FastStockScanner.saveEasySale({...}) ile gelen veriyi al
             JSObject data = call.getData();
             if (data == null) {
                 call.reject("Eksik veri: data yok");
@@ -397,7 +594,6 @@ public class FastStockScannerPlugin extends Plugin {
                 return;
             }
 
-            // items: [{ barcode, brand, sn, status, description, note, unitPrice, partialAmount, ndbSuccess, ndbMessage }, ...]
             org.json.JSONArray items;
             try {
                 items = data.getJSONArray("items");
@@ -416,13 +612,11 @@ public class FastStockScannerPlugin extends Plugin {
             String prescriptionNumber = data.optString("prescriptionNumber", null);
             String note = data.optString("note", null);
 
-            // Cihaz kimliği (şimdilik boş geçilebilir)
             String deviceId = data.optString("deviceId", null);
 
             ScanDatabaseHelper dbHelper = ScanDatabaseHelper.getInstance(getContext());
             SQLiteDatabase db = dbHelper.getWritableDatabase();
 
-            // easy_sales kaydı ekle
             long saleId = dbHelper.insertEasySale(
                     createdAt,
                     patient,
@@ -437,7 +631,6 @@ public class FastStockScannerPlugin extends Plugin {
                 return;
             }
 
-            // easy_sale_items için detaylı kalemleri ekle (barcode + brand + sn + status + description + note + unit_price + partial_amount + NDB sonuçları)
             db.beginTransaction();
             try {
                 for (int i = 0; i < items.length(); i++) {
@@ -455,7 +648,6 @@ public class FastStockScannerPlugin extends Plugin {
                     String unitPrice = o.optString("unitPrice", null);
                     String partialAmount = o.optString("partialAmount", null);
 
-                    // NDB bildirim sonucu (frontend gönderirse kaydedelim)
                     boolean hasNdbSuccess = o.has("ndbSuccess");
                     boolean ndbSuccess = o.optBoolean("ndbSuccess", false);
                     String ndbMessage = o.optString("ndbMessage", null);

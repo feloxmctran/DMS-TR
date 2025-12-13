@@ -1,8 +1,12 @@
 // src/pages/FastPage.tsx
+import { Preferences } from "@capacitor/preferences";
+
 import React, { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { FastStockScanner } from "../plugins/fastStockScanner";
 import { Filesystem, Directory, Encoding } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
+
 import FastStockReportPage from "./FastStockReportPage";
 
 
@@ -86,18 +90,32 @@ function csvEscape(value: string): string {
 /** Verilen satırlardan CSV oluşturur ve platforma göre kaydeder/indirir (UTF-8 + BOM) */
 async function downloadCsv(filename: string, rows: string[][]) {
   const csv = rows.map((row) => row.map(csvEscape).join(";")).join("\r\n");
-  // Excel'in UTF-8 olarak tanıması için BOM ekleyelim
   const csvWithBom = "\uFEFF" + csv;
 
-  // Native (Android/iOS) ise: Filesystem ile kaydet
+  // Native (Android/iOS): Documents'a yazma -> Cache'e yaz + Share ile kaydet/paylaş
   if (Capacitor.isNativePlatform()) {
     try {
+      const safeName = filename.endsWith(".csv") ? filename : `${filename}.csv`;
+
       await Filesystem.writeFile({
-        path: filename,
-        data: csvWithBom,          // <-- BOM'lu veri
-        directory: Directory.Documents,
+        path: safeName,
+        data: csvWithBom,
+        directory: Directory.Cache,     // ✅ izin istemez
         encoding: Encoding.UTF8,
       });
+
+      const { uri } = await Filesystem.getUri({
+        path: safeName,
+        directory: Directory.Cache,
+      });
+
+      await Share.share({
+        title: safeName,
+        text: "CSV dosyası",
+        url: uri,
+        dialogTitle: "CSV'yi kaydet / paylaş",
+      });
+
       return;
     } catch (e: any) {
       console.error("CSV yazılırken hata:", e);
@@ -126,6 +144,7 @@ async function downloadCsv(filename: string, rows: string[][]) {
 
   URL.revokeObjectURL(url);
 }
+
 
 
 
@@ -269,12 +288,11 @@ const handleExportStockReportCsv = async () => {
 
   await downloadCsv("stok_raporu_tum_oturumlar.csv", [header, ...rows]);
 
-  alert(
-    "Stok raporu CSV olarak kaydedildi.\n" +
-      "Android'de genelde 'Dosyalar' uygulamasında Belgeler (Documents) klasöründe görünür:\n" +
-      "stok_raporu_tum_oturumlar.csv"
+    alert(
+    "CSV hazırlandı. Açılan paylaş/kaydet ekranından Dosyalar/Drive/WhatsApp ile kaydedebilirsiniz."
   );
 };
+
 
 
 
@@ -290,27 +308,38 @@ const handleExportStockReportCsv = async () => {
       const anyScanner: any = FastStockScanner;
       const res = await anyScanner.getAllScanItems?.();
 
-      const codes: string[] = Array.isArray(res?.codes)
-        ? res.codes
-        : Array.isArray(res?.datamatrixes)
-        ? res.datamatrixes
-        : [];
+      const codesRaw: string[] = Array.isArray(res?.codes)
+  ? res.codes
+  : Array.isArray(res?.datamatrixes)
+  ? res.datamatrixes
+  : [];
 
-      if (!codes.length) {
-        alert("Kayıtlı karekod bulunamadı.");
-        return;
-      }
+// ✅ unique + boş temizliği
+const codes = Array.from(
+  new Set(
+    codesRaw
+      .map((s) => String(s || "").trim())
+      .filter((s) => s.length > 0)
+  )
+);
 
-      const header = ["Datamatrix"];
-      const rows = codes.map((code) => [code]);
+if (!codes.length) {
+  alert("Kayıtlı karekod bulunamadı.");
+  return;
+}
+
+const header = ["Datamatrix"];
+const rows = codes.map((code) => [code]);
+
 
       await downloadCsv("tum_datamatrixler.csv", [header, ...rows]);
 
       alert(
-        "Tüm datamatrixler CSV olarak kaydedildi.\n" +
-          "Android'de 'Dosyalar' / Belgeler (Documents) klasöründe görünür:\n" +
-          "tum_datamatrixler.csv"
-      );
+  `CSV hazırlandı. Benzersiz datamatrix: ${codes.length}\n` +
+  "Açılan paylaş/kaydet ekranından Dosyalar/Drive/WhatsApp ile kaydedebilirsiniz."
+);
+
+
     } catch (err: any) {
       const msg =
         typeof err === "string"
@@ -327,10 +356,12 @@ const handleExportStockReportCsv = async () => {
    
   // Sayfa açıldığında oturumları yükle
   useEffect(() => {
-    if (!isNative()) return;
-    loadFastScanSessions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  if (!isNative()) return;
+  importInitialProductsOnce();   // ✅ EKLE
+  loadFastScanSessions();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
 
   if (showReportPage) {
     return (
@@ -345,15 +376,18 @@ const handleExportStockReportCsv = async () => {
 
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#f3f4f6",
-        padding: 16,
-        maxWidth: 1100,
-        margin: "0 auto",
-      }}
-    >
+  <div
+    style={{
+      minHeight: "100vh",
+      background: "#f3f4f6",
+      padding: 16,
+      paddingTop: 56,
+      maxWidth: 1100,
+      margin: "0 auto",
+    }}
+  >
+
+
       {/* Üst bar: başlık + Geri + Start */}
       <div
         style={{
@@ -551,6 +585,38 @@ const handleExportStockReportCsv = async () => {
       )}
     </div>
   );
+};
+
+
+const importInitialProductsOnce = async () => {
+  if (!Capacitor.isNativePlatform()) return;
+
+  // aynı cihazda sürekli import etmesin
+  const flagKey = "fast_products_imported_v1";
+  const already = await Preferences.get({ key: flagKey });
+  if (already.value === "1") return;
+
+  // public/initial_products.json → fetch ile oku
+  const res = await fetch("/initial_products.json", { cache: "no-store" });
+  if (!res.ok) {
+    alert("initial_products.json okunamadı: " + res.status);
+    return;
+  }
+
+  const json = await res.json();
+  const items = Array.isArray(json?.items) ? json.items : [];
+
+  if (!items.length) {
+    alert("initial_products.json içindeki items boş geldi.");
+    return;
+  }
+
+  const result = await (FastStockScanner as any).importInitialProducts({ items });
+
+  const count = result?.count ?? result?.countInserted ?? result?.inserted ?? 0;
+  await Preferences.set({ key: flagKey, value: "1" });
+
+  alert("Ürün kataloğu içe aktarıldı. Yazılan kayıt: " + count);
 };
 
 export default FastPage;

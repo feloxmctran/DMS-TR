@@ -285,12 +285,14 @@ const EasyPage: React.FC<EasyPageProps> = ({
   return (
     <div
       style={{
-        minHeight: "100vh",
-        background: "#f3f4f6",
-        padding: 16,
-        maxWidth: 1100,
-        margin: "0 auto",
-      }}
+  minHeight: "100vh",
+  background: "#f3f4f6",
+  padding: 16,
+  paddingTop: 72,
+  maxWidth: 1100,
+  margin: "0 auto",
+}}
+
     >
       {/* Üst bar */}
       <div

@@ -244,17 +244,21 @@ const EasyFinalPage: React.FC<EasyFinalPageProps> = ({
   };
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#f3f4f6",
-        padding: 16,
-        maxWidth: 1100,
-        margin: "0 auto",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+  <div
+    style={{
+  minHeight: "100vh",
+  background: "#f3f4f6",
+  padding: 16,
+  paddingTop: 72,
+  paddingBottom: 110,
+  maxWidth: 1100,
+  margin: "0 auto",
+  display: "flex",
+  flexDirection: "column",
+}}
+
+  >
+
       {/* Üst bar */}
       <div
         style={{
