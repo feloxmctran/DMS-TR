@@ -3,16 +3,25 @@ import http from "http";
 import { parse } from "url";
 import { promises as fs } from "fs";
 
+import pg from "pg";
+const { Pool } = pg;
+
+// LOCAL Postgres (şimdilik)
+const pool = new Pool({
+  host: process.env.PGHOST || "localhost",
+  port: Number(process.env.PGPORT || 5432),
+  user: process.env.PGUSER || "postgres",
+  password: process.env.PGPASSWORD || "",
+  database: process.env.PGDATABASE || "dms_tr",
+});
+
+
 const PORT = process.env.PORT || 4000;
 
-// Kalıcı veri dosyası (JSON)
-const DATA_FILE = new URL("./trials.json", import.meta.url);
+
 // Ürün kataloğu (GTIN + İlaç adı) için kalıcı JSON
 const PRODUCTS_FILE = new URL("./products.json", import.meta.url);
 
-// Basit in-memory veriler
-let defaultDays = 14; // deneme süresi gün
-const trials = new Map();
 
 // Products in-memory
 let productsData = {
@@ -75,94 +84,64 @@ function nextChangeId() {
   return (typeof productsData.lastChangeId === "number" ? productsData.lastChangeId : 0) + 1;
 }
 
-// ===================== trials helpers =====================
-function getOrCreateTrialRecord(stakeholderId, partnerId, stakeholderName) {
-  let rec = trials.get(stakeholderId);
-  if (!rec) {
-    rec = {
-      devices: new Map(),
-      partnerId: partnerId || "",
-      stakeholderName: stakeholderName || "",
-    };
-    trials.set(stakeholderId, rec);
-  } else {
-    if (partnerId) rec.partnerId = partnerId;
-    if (stakeholderName) rec.stakeholderName = stakeholderName;
-  }
-  return rec;
+// ===================== trials db helpers =====================
+async function dbGetTrialDevice(deviceId) {
+  const q = `
+    select device_id, started_at, expires_at, extended_days, last_seen_at, notes
+    from trial_devices
+    where device_id = $1
+    limit 1
+  `;
+  const r = await pool.query(q, [String(deviceId)]);
+  return r.rows[0] || null;
 }
+
+async function dbUpsertTrialDevice({ deviceId, expiresAtIso }) {
+  const q = `
+    insert into trial_devices (device_id, started_at, expires_at, extended_days, last_seen_at, updated_at)
+    values ($1, now(), $2::timestamptz, 0, now(), now())
+    on conflict (device_id)
+    do update set
+      expires_at = excluded.expires_at,
+      last_seen_at = now(),
+      updated_at = now()
+    returning device_id, started_at, expires_at, extended_days
+  `;
+  const r = await pool.query(q, [String(deviceId), String(expiresAtIso)]);
+  return r.rows[0];
+}
+
+async function dbSetExtensionRequested(deviceId, requested = true) {
+  const note = requested ? "EXTENSION_REQUESTED" : null;
+
+  const q = `
+    insert into trial_devices (device_id, started_at, expires_at, extended_days, last_seen_at, notes, updated_at)
+    values ($1, now(), now(), 0, now(), $2, now())
+    on conflict (device_id)
+    do update set
+      notes = $2,
+      last_seen_at = now(),
+      updated_at = now()
+    returning device_id, notes
+  `;
+
+  const r = await pool.query(q, [String(deviceId), note]);
+  return r.rows[0] || null;
+}
+
+async function dbListTrials() {
+  const q = `
+    select device_id, started_at, expires_at, notes
+    from trial_devices
+    order by started_at desc
+    limit 500
+  `;
+  const r = await pool.query(q);
+  return r.rows || [];
+}
+
 
 // ===================== disk layer =====================
-async function saveToDisk() {
-  try {
-    const serialized = {
-      defaultDays,
-      trials: Array.from(trials.entries()).map(([stakeholderId, rec]) => ({
-        stakeholderId,
-        partnerId: rec.partnerId || "",
-        stakeholderName: rec.stakeholderName || "",
-        devices: Array.from(rec.devices.entries()).map(([deviceId, info]) => ({
-          deviceId,
-          createdAt: info.createdAt || null,
-          expiresAt: info.expiresAt || null,
-          extensionRequested: !!info.extensionRequested,
-        })),
-      })),
-    };
-
-    await fs.writeFile(DATA_FILE, JSON.stringify(serialized, null, 2), "utf8");
-  } catch (e) {
-    console.error("saveToDisk hata:", e);
-  }
-}
-
-async function loadFromDisk() {
-  try {
-    const txt = await fs.readFile(DATA_FILE, "utf8");
-    if (!txt) return;
-
-    const data = JSON.parse(txt);
-
-    if (typeof data.defaultDays === "number" && data.defaultDays > 0) {
-      defaultDays = data.defaultDays;
-    }
-
-    trials.clear();
-
-    if (Array.isArray(data.trials)) {
-      for (const t of data.trials) {
-        const stakeholderId = String(t.stakeholderId ?? "");
-        if (!stakeholderId) continue;
-
-        const rec = {
-          partnerId: t.partnerId ? String(t.partnerId) : "",
-          stakeholderName: t.stakeholderName ? String(t.stakeholderName) : "",
-          devices: new Map(),
-        };
-
-        const devs = Array.isArray(t.devices) ? t.devices : [];
-        for (const d of devs) {
-          const deviceId = String(d.deviceId ?? "");
-          if (!deviceId) continue;
-
-          rec.devices.set(deviceId, {
-            createdAt: d.createdAt || null,
-            expiresAt: d.expiresAt || null,
-            extensionRequested: !!d.extensionRequested,
-          });
-        }
-
-        trials.set(stakeholderId, rec);
-      }
-    }
-
-    console.log(
-      `trials.json yüklendi → ${trials.size} stakeholder, defaultDays=${defaultDays}`
-    );
-  } catch (e) {
-    console.warn("loadFromDisk uyarı (ilk çalıştırma olabilir):", e.message);
-  }
-}
 
 async function loadProductsFromDisk() {
   try {
@@ -230,87 +209,100 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ================== TRIAL API'LERİ ==================
-  if (req.method === "POST" && pathname === "/api/trial/register") {
+    if (req.method === "POST" && pathname === "/api/trial/register") {
     const { stakeholderId, partnerId, deviceId, stakeholderName } =
       await readBody(req);
 
     if (!stakeholderId || !deviceId) {
-      return send(res, 400, { ok: false, error: "stakeholderId ve deviceId gerekli" });
-    }
-
-    const now = new Date();
-    const nowIso = now.toISOString();
-    const rec = getOrCreateTrialRecord(stakeholderId, partnerId, stakeholderName);
-
-    let info = rec.devices.get(deviceId);
-
-    if (info && info.expiresAt) {
-      const existingExp = new Date(info.expiresAt);
-      if (!isNaN(existingExp.getTime()) && existingExp > now) {
-        return send(res, 200, {
-          ok: true,
-          status: "exists",
-          stakeholderId,
-          deviceId,
-          createdAt: info.createdAt || null,
-          expiresAt: info.expiresAt,
-          partnerId: rec.partnerId || "",
-          stakeholderName: rec.stakeholderName || "",
-        });
-      }
-    }
-
-    const expiresAt = addDays(nowIso, defaultDays);
-    const createdAt = info?.createdAt || nowIso;
-
-    info = { ...(info || {}), createdAt, expiresAt, extensionRequested: false };
-    rec.devices.set(deviceId, info);
-
-    await saveToDisk();
-
-    return send(res, 200, {
-      ok: true,
-      status: "created",
-      stakeholderId,
-      deviceId,
-      createdAt,
-      expiresAt,
-      partnerId: rec.partnerId || "",
-      stakeholderName: rec.stakeholderName || "",
-    });
-  }
-
-  if (req.method === "GET" && pathname === "/api/trial/status") {
-    const stakeholderId = query.stakeholderId?.toString();
-    const deviceId = query.deviceId?.toString();
-
-    if (!stakeholderId || !deviceId) {
       return send(res, 400, {
         ok: false,
-        allowed: false,
-        reason: "missing_params",
         error: "stakeholderId ve deviceId gerekli",
-        expiresAt: null,
       });
     }
 
-    const rec = trials.get(stakeholderId);
-    const info = rec?.devices?.get(deviceId);
+    try {
+      const now = new Date();
 
-    if (!info || !info.expiresAt) {
+      // varsa ve süresi dolmadıysa "exists"
+      const existing = await dbGetTrialDevice(deviceId);
+      if (existing?.expires_at) {
+        const exp = new Date(existing.expires_at);
+        if (!isNaN(exp.getTime()) && exp > now) {
+          return send(res, 200, {
+            ok: true,
+            status: "exists",
+            stakeholderId,
+            deviceId,
+            createdAt: existing.started_at
+              ? new Date(existing.started_at).toISOString()
+              : null,
+            expiresAt: new Date(existing.expires_at).toISOString(),
+            partnerId: partnerId || "",
+            stakeholderName: stakeholderName || "",
+          });
+        }
+      }
+
+      // yoksa / süresi dolduysa: yeni expiry yaz
+      const expiresAt = addDays(now.toISOString(), defaultDays);
+
+      const saved = await dbUpsertTrialDevice({
+        deviceId,
+        expiresAtIso: expiresAt,
+      });
+
+      return send(res, 200, {
+        ok: true,
+        status: "created",
+        stakeholderId,
+        deviceId,
+        createdAt: saved?.started_at
+          ? new Date(saved.started_at).toISOString()
+          : now.toISOString(),
+        expiresAt: saved?.expires_at
+          ? new Date(saved.expires_at).toISOString()
+          : expiresAt,
+        partnerId: partnerId || "",
+        stakeholderName: stakeholderName || "",
+      });
+    } catch (e) {
+      console.error("trial/register db hata:", e);
+      return send(res, 500, { ok: false, error: "db_error" });
+    }
+  }
+
+
+  if (req.method === "GET" && pathname === "/api/trial/status") {
+  const stakeholderId = query.stakeholderId?.toString(); // şimdilik client aynı kalsın
+  const deviceId = query.deviceId?.toString();
+
+  if (!stakeholderId || !deviceId) {
+    return send(res, 400, {
+      ok: false,
+      allowed: false,
+      reason: "missing_params",
+      error: "stakeholderId ve deviceId gerekli",
+      expiresAt: null,
+    });
+  }
+
+  try {
+    const row = await dbGetTrialDevice(deviceId);
+
+    if (!row || !row.expires_at) {
       return send(res, 200, {
         ok: true,
         allowed: false,
         reason: "no_trial",
         stakeholderId,
         deviceId,
-        createdAt: info?.createdAt || null,
+        createdAt: row?.started_at ? new Date(row.started_at).toISOString() : null,
         expiresAt: null,
       });
     }
 
     const now = new Date();
-    const exp = new Date(info.expiresAt);
+    const exp = new Date(row.expires_at);
 
     if (isNaN(exp.getTime())) {
       return send(res, 200, {
@@ -319,10 +311,16 @@ const server = http.createServer(async (req, res) => {
         reason: "no_trial",
         stakeholderId,
         deviceId,
-        createdAt: info.createdAt || null,
+        createdAt: row.started_at ? new Date(row.started_at).toISOString() : null,
         expiresAt: null,
       });
     }
+
+    // last_seen_at güncelle (best-effort)
+    pool.query(
+      "update trial_devices set last_seen_at = now(), updated_at = now() where device_id = $1",
+      [String(deviceId)]
+    ).catch(() => {});
 
     if (exp > now) {
       return send(res, 200, {
@@ -331,8 +329,8 @@ const server = http.createServer(async (req, res) => {
         reason: "ok",
         stakeholderId,
         deviceId,
-        createdAt: info.createdAt || null,
-        expiresAt: info.expiresAt,
+        createdAt: row.started_at ? new Date(row.started_at).toISOString() : null,
+        expiresAt: new Date(row.expires_at).toISOString(),
       });
     }
 
@@ -342,73 +340,80 @@ const server = http.createServer(async (req, res) => {
       reason: "trial_expired",
       stakeholderId,
       deviceId,
-      createdAt: info.createdAt || null,
-      expiresAt: info.expiresAt,
+      createdAt: row.started_at ? new Date(row.started_at).toISOString() : null,
+      expiresAt: new Date(row.expires_at).toISOString(),
     });
+  } catch (e) {
+    console.error("trial/status db hata:", e);
+    return send(res, 500, { ok: false, allowed: false, error: "db_error" });
   }
+}
 
-  if (req.method === "POST" && pathname === "/api/trial/extend-request") {
+
+    if (req.method === "POST" && pathname === "/api/trial/extend-request") {
     const { stakeholderId, deviceId } = await readBody(req);
 
     if (!stakeholderId || !deviceId) {
-      return send(res, 400, { ok: false, error: "stakeholderId ve deviceId gerekli" });
+      return send(res, 400, {
+        ok: false,
+        error: "stakeholderId ve deviceId gerekli",
+      });
     }
 
-    const rec = getOrCreateTrialRecord(stakeholderId);
-    const nowIso = new Date().toISOString();
-    let info = rec.devices.get(deviceId) || {
-      createdAt: nowIso,
-      expiresAt: null,
-      extensionRequested: false,
-    };
+    try {
+      await dbSetExtensionRequested(deviceId, true);
 
-    if (!info.createdAt) info.createdAt = nowIso;
-
-    info = { ...info, extensionRequested: true };
-    rec.devices.set(deviceId, info);
-
-    await saveToDisk();
-
-    return send(res, 200, {
-      ok: true,
-      stakeholderId,
-      deviceId,
-      extensionRequested: true,
-    });
+      return send(res, 200, {
+        ok: true,
+        stakeholderId,
+        deviceId,
+        extensionRequested: true,
+      });
+    } catch (e) {
+      console.error("trial/extend-request db hata:", e);
+      return send(res, 500, { ok: false, error: "db_error" });
+    }
   }
+
 
   // ================== ADMIN API'LERİ ==================
 
   // Admin listesi
   if (req.method === "GET" && pathname === "/api/admin/trials") {
-    const list = [];
-    for (const [sid, entry] of trials.entries()) {
-      for (const [dev, info] of entry.devices.entries()) {
-        const createdAt = info.createdAt || null;
-        let daysSinceCreated = null;
+  try {
+    const rows = await dbListTrials();
 
-        if (createdAt) {
-          const cd = new Date(createdAt);
-          if (!isNaN(cd.getTime())) {
-            const diffMs = Date.now() - cd.getTime();
-            daysSinceCreated = Math.floor(diffMs / (24 * 60 * 60 * 1000));
-          }
+    const list = rows.map((r) => {
+      const createdAtIso = r.started_at ? new Date(r.started_at).toISOString() : null;
+
+      let daysSinceCreated = null;
+      if (createdAtIso) {
+        const cd = new Date(createdAtIso);
+        if (!isNaN(cd.getTime())) {
+          const diffMs = Date.now() - cd.getTime();
+          daysSinceCreated = Math.floor(diffMs / (24 * 60 * 60 * 1000));
         }
-
-        list.push({
-          stakeholderId: sid,
-          deviceId: dev,
-          createdAt,
-          daysSinceCreated,
-          expiresAt: info.expiresAt || null,
-          partnerId: entry.partnerId || "",
-          stakeholderName: entry.stakeholderName || "",
-          extensionRequested: !!info.extensionRequested,
-        });
       }
-    }
+
+      return {
+        stakeholderId: "", // DB şemasında yok; client bozulmasın diye alanı koruyoruz
+        deviceId: r.device_id,
+        createdAt: createdAtIso,
+        daysSinceCreated,
+        expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : null,
+        partnerId: "", // DB şemasında yok
+        stakeholderName: "", // DB şemasında yok
+        extensionRequested: String(r.notes || "") === "EXTENSION_REQUESTED",
+      };
+    });
+
     return send(res, 200, { ok: true, defaultDays, list });
+  } catch (e) {
+    console.error("admin/trials db hata:", e);
+    return send(res, 500, { ok: false, error: "db_error" });
   }
+}
+
 
   // Admin: ürün listesini TOPLU replace (mevcut endpoint) — lastChangeId artsın
   if (req.method === "POST" && pathname === "/api/admin/products") {
@@ -499,7 +504,6 @@ const server = http.createServer(async (req, res) => {
 
 // boot
 (async () => {
-  await loadFromDisk();
   await loadProductsFromDisk();
   server.listen(PORT, () => {
     console.log(`Mini backend çalışıyor → http://localhost:${PORT}`);
