@@ -257,9 +257,11 @@ const server = http.createServer(async (req, res) => {
       const expiresAt = addDays(now.toISOString(), defaultDays);
 
       const saved = await dbUpsertTrialDevice({
-        deviceId,
-        expiresAtIso: expiresAt,
-      });
+  deviceId,
+  expiresAtIso: expiresAt,
+  name: stakeholderName || null,
+});
+
 
       return send(res, 200, {
         ok: true,
