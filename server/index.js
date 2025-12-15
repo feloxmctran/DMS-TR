@@ -141,8 +141,8 @@ async function dbSetExtensionRequested(deviceId, requested = true) {
 
 async function dbListTrials() {
   const q = `
-    select device_id, started_at, expires_at, notes
-    from trial_devices
+    select device_id, name, started_at, expires_at, notes
+from trial_devices
     order by started_at desc
     limit 500
   `;
@@ -454,7 +454,7 @@ if (stakeholderName) {
         daysSinceCreated,
         expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : null,
         partnerId: "", // DB şemasında yok
-        stakeholderName: "", // DB şemasında yok
+        stakeholderName: r.name || "",
         extensionRequested: String(r.notes || "") === "EXTENSION_REQUESTED",
       };
     });
