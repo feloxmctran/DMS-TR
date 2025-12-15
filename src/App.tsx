@@ -67,9 +67,8 @@ async function getDeviceId(): Promise<string> {
 }
 
 /** Trial API tabanı — web’de localhost, native’de PC’nin IP’si */
-const TRIAL_API_BASE = isNative()
-  ? "http://200.0.0.137:4000" // ← BURAYA PC’NİN YEREL IP ADRESİNİ YAZ
-  : "http://localhost:4000";
+const TRIAL_API_BASE = "https://dms-tr.onrender.com";
+
 
 const FAST_PRODUCTS_URL = `${TRIAL_API_BASE}/initial_products.json`;
 
