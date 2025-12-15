@@ -252,6 +252,15 @@ const server = http.createServer(async (req, res) => {
       if (existing?.expires_at) {
         const exp = new Date(existing.expires_at);
         if (!isNaN(exp.getTime()) && exp > now) {
+          // name geldiyse kayıtlı name'i güncelle (trial aktifken de)
+if (stakeholderName) {
+  await dbUpsertTrialDevice({
+    deviceId,
+    expiresAtIso: new Date(existing.expires_at).toISOString(),
+    name: stakeholderName || null,
+  });
+}
+
           return send(res, 200, {
             ok: true,
             status: "exists",
@@ -275,6 +284,7 @@ const server = http.createServer(async (req, res) => {
   expiresAtIso: expiresAt,
   name: stakeholderName || null,
 });
+
 
 
       return send(res, 200, {
