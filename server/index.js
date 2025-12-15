@@ -94,7 +94,7 @@ function nextChangeId() {
 // ===================== trials db helpers =====================
 async function dbGetTrialDevice(deviceId) {
   const q = `
-    select device_id, started_at, expires_at, extended_days, last_seen_at, notes
+    select device_id, name, started_at, expires_at, extended_days, last_seen_at, notes
     from trial_devices
     where device_id = $1
     limit 1
@@ -103,18 +103,21 @@ async function dbGetTrialDevice(deviceId) {
   return r.rows[0] || null;
 }
 
-async function dbUpsertTrialDevice({ deviceId, expiresAtIso }) {
+async function dbUpsertTrialDevice({ deviceId, expiresAtIso, name }) {
+
   const q = `
-    insert into trial_devices (device_id, started_at, expires_at, extended_days, last_seen_at, updated_at)
-    values ($1, now(), $2::timestamptz, 0, now(), now())
+    insert into trial_devices (device_id, name, started_at, expires_at, extended_days, last_seen_at, updated_at)
+values ($1, $2, now(), $3::timestamptz, 0, now(), now())
     on conflict (device_id)
     do update set
-      expires_at = excluded.expires_at,
-      last_seen_at = now(),
-      updated_at = now()
+  name = excluded.name,
+  expires_at = excluded.expires_at,
+  last_seen_at = now(),
+  updated_at = now()
     returning device_id, started_at, expires_at, extended_days
   `;
-  const r = await pool.query(q, [String(deviceId), String(expiresAtIso)]);
+  const r = await pool.query(q, [String(deviceId), name || null, String(expiresAtIso)]);
+
   return r.rows[0];
 }
 
