@@ -150,6 +150,20 @@ async function dbListTrials() {
   return r.rows || [];
 }
 
+async function dbSetTrialName(deviceId, name) {
+  const q = `
+    insert into trial_devices (device_id, name, started_at, expires_at, extended_days, last_seen_at, updated_at)
+    values ($1, $2, now(), now(), 0, now(), now())
+    on conflict (device_id)
+    do update set
+      name = excluded.name,
+      updated_at = now()
+    returning device_id, name
+  `;
+  const r = await pool.query(q, [String(deviceId), name || null]);
+  return r.rows[0] || null;
+}
+
 
 // ===================== disk layer =====================
 
@@ -386,6 +400,22 @@ const server = http.createServer(async (req, res) => {
       return send(res, 500, { ok: false, error: "db_error" });
     }
   }
+
+  if (req.method === "POST" && pathname === "/api/trial/name") {
+  const { deviceId, name } = await readBody(req);
+
+  if (!deviceId) {
+    return send(res, 400, { ok: false, error: "deviceId gerekli" });
+  }
+
+  try {
+    const row = await dbSetTrialName(deviceId, String(name || "").trim());
+    return send(res, 200, { ok: true, deviceId: row?.device_id, name: row?.name || "" });
+  } catch (e) {
+    console.error("trial/name db hata:", e);
+    return send(res, 500, { ok: false, error: "db_error" });
+  }
+}
 
 
   // ================== ADMIN API'LERİ ==================
