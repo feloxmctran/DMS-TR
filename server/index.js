@@ -31,21 +31,11 @@ let defaultDays = Number(process.env.DEFAULT_TRIAL_DAYS || 7);
 // Offline grace gün (ileride FE tarafında kullanılacak; şimdilik status’a ekliyoruz)
 const OFFLINE_GRACE_DAYS = Number(process.env.OFFLINE_GRACE_DAYS || 7);
 
-// Ürün kataloğu (GTIN + İlaç adı) için kalıcı JSON
-const PRODUCTS_FILE = new URL("./products.json", import.meta.url);
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Bridge download dosyası
 const BRIDGE_ZIP_PATH = path.join(__dirname, "downloads", "DMS-Bridge.zip");
-
-// Products in-memory
-let productsData = {
-  lastChangeId: 0,
-  updatedAt: null,
-  items: [],
-};
 
 // ===================== yardımcılar =====================
 function send(res, code, data, headers = {}) {
@@ -94,10 +84,6 @@ function normalizeGtin(gtin) {
   return g;
 }
 
-function nextChangeId() {
-  return (typeof productsData.lastChangeId === "number" ? productsData.lastChangeId : 0) + 1;
-}
-
 // Admin koruması: ADMIN_SECRET set edilirse zorunlu; set değilse serbest (mevcut akış bozulmasın)
 function requireAdmin(req, res) {
   const secret = process.env.ADMIN_SECRET;
@@ -108,6 +94,137 @@ function requireAdmin(req, res) {
     return false;
   }
   return true;
+}
+
+// ===================== products db helpers =====================
+
+// DB'deki en güncel change_id (yoksa 0)
+async function dbGetProductsLastChangeId() {
+  const r = await pool.query(`select coalesce(max(change_id), 0) as last from product_changes`);
+  return Number(r.rows?.[0]?.last || 0);
+}
+
+// İlk kurulum için: tüm products tablosunu döndür
+async function dbListAllProducts({ limit = 200000 }) {
+  const lim = Math.max(1, Math.min(Number(limit || 200000), 300000));
+  const r = await pool.query(
+    `
+    select id, gtin, brand_name
+    from products
+    order by id asc
+    limit $1
+    `,
+    [lim]
+  );
+  return (r.rows || []).map((x) => ({
+    id: Number(x.id),
+    gtin: String(x.gtin || ""),
+    brand_name: String(x.brand_name || ""),
+  }));
+}
+
+// since'ten sonraki değişikliklere ait ürünleri döndürür
+async function dbProductsSync({ since = 0, limit = 5000 }) {
+  const s = Number(since || 0);
+  const lim = Math.max(1, Math.min(Number(limit || 5000), 20000));
+
+  const sql = `
+    select
+      pc.change_id,
+      p.id,
+      p.gtin,
+      p.brand_name
+    from product_changes pc
+    join products p on p.id = pc.product_id
+    where pc.change_id > $1
+    order by pc.change_id asc
+    limit $2
+  `;
+  const r = await pool.query(sql, [s, lim]);
+
+  const lastGlobal = await dbGetProductsLastChangeId();
+  const items = (r.rows || []).map((x) => ({
+    id: Number(x.id),
+    gtin: String(x.gtin || ""),
+    brand_name: String(x.brand_name || ""),
+  }));
+
+  return {
+    lastChangeId: lastGlobal, // değişiklik yoksa bile global max
+    items,
+  };
+}
+
+// Tek ürün ekle: her zaman yeni satır insert (silme yok, update yok; telefonda id DESC seçiyor)
+async function dbAdminAddProduct({ gtin, brandName }) {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+
+    const ins = await client.query(
+      `
+      insert into products (gtin, brand_name)
+      values ($1, $2)
+      returning id, gtin, brand_name
+      `,
+      [String(gtin), String(brandName)]
+    );
+    const row = ins.rows[0];
+
+    await client.query(
+      `
+      insert into product_changes (action, product_id)
+      values ('ADD', $1)
+      `,
+      [Number(row.id)]
+    );
+
+    await client.query("commit");
+    return row;
+  } catch (e) {
+    await client.query("rollback");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+// Toplu replace: tüm listeyi yeni kayıtlar olarak ekler + her biri için change log
+async function dbAdminReplaceProducts({ items }) {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+
+    const inserted = [];
+    for (const it of items) {
+      const ins = await client.query(
+        `
+        insert into products (gtin, brand_name)
+        values ($1, $2)
+        returning id, gtin, brand_name
+        `,
+        [String(it.gtin), String(it.brand_name)]
+      );
+      const row = ins.rows[0];
+      inserted.push(row);
+
+      await client.query(
+        `
+        insert into product_changes (action, product_id)
+        values ('REPLACE', $1)
+        `,
+        [Number(row.id)]
+      );
+    }
+
+    await client.query("commit");
+    return inserted;
+  } catch (e) {
+    await client.query("rollback");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 // ===================== devices + licensing db helpers =====================
@@ -434,37 +551,6 @@ async function dbListKeyRequests({ status = "open", limit = 200 }) {
   return r.rows || [];
 }
 
-// ===================== disk layer =====================
-async function loadProductsFromDisk() {
-  try {
-    const txt = await fs.readFile(PRODUCTS_FILE, "utf8");
-    if (!txt) return;
-
-    const data = JSON.parse(txt);
-    const items = Array.isArray(data.items) ? data.items : [];
-
-    productsData = {
-      lastChangeId: typeof data.lastChangeId === "number" ? data.lastChangeId : 0,
-      updatedAt: data.updatedAt ? String(data.updatedAt) : null,
-      items,
-    };
-
-    console.log(
-      `products load → source=${PRODUCTS_FILE.href} items=${productsData.items.length} lastChangeId=${productsData.lastChangeId}`
-    );
-  } catch (e) {
-    console.warn("loadProductsFromDisk uyarı (products.json yok olabilir):", e.message);
-  }
-}
-
-async function saveProductsToDisk() {
-  try {
-    await fs.writeFile(PRODUCTS_FILE, JSON.stringify(productsData, null, 2), "utf8");
-  } catch (e) {
-    console.error("saveProductsToDisk hata:", e);
-  }
-}
-
 // ===================== server =====================
 const server = http.createServer(async (req, res) => {
   const { pathname, query } = parse(req.url, true);
@@ -484,18 +570,51 @@ const server = http.createServer(async (req, res) => {
     return send(res, 200, { ok: true, now: new Date().toISOString() });
   }
 
-  // ✅ Telefon SYNC buradan çekecek
+  // ✅ Telefon SYNC: endpoint aynı kaldı, ama artık DB'den besleniyor (JSON yok)
   if (req.method === "GET" && pathname === "/initial_products.json") {
-    return send(
-      res,
-      200,
-      {
-        lastChangeId: productsData.lastChangeId || 0,
-        updatedAt: productsData.updatedAt || null,
-        items: Array.isArray(productsData.items) ? productsData.items : [],
-      },
-      { "Cache-Control": "no-store" }
-    );
+    try {
+      const items = await dbListAllProducts({ limit: 200000 });
+      const lastChangeId = await dbGetProductsLastChangeId();
+
+      return send(
+        res,
+        200,
+        {
+          lastChangeId,
+          updatedAt: new Date().toISOString(),
+          items: items.map((x) => ({ gtin: x.gtin, brand_name: x.brand_name })),
+        },
+        { "Cache-Control": "no-store" }
+      );
+    } catch (e) {
+      console.error("initial_products.json db hata:", e);
+      return send(res, 500, { ok: false, error: "db_error" });
+    }
+  }
+
+  // ✅ Incremental ürün sync (telefon bir sonraki adımda buraya geçecek)
+  // GET /api/products/sync?since=123&limit=5000
+  if (req.method === "GET" && pathname === "/api/products/sync") {
+    try {
+      const since = Number(query.since || 0);
+      const limit = Number(query.limit || 5000);
+
+      const out = await dbProductsSync({ since, limit });
+
+      return send(
+        res,
+        200,
+        {
+          ok: true,
+          lastChangeId: out.lastChangeId,
+          items: out.items, // {id, gtin, brand_name}
+        },
+        { "Cache-Control": "no-store" }
+      );
+    } catch (e) {
+      console.error("products/sync db hata:", e);
+      return send(res, 500, { ok: false, error: "db_error" });
+    }
   }
 
   // ✅ Bridge indir (tek link)
@@ -531,7 +650,7 @@ const server = http.createServer(async (req, res) => {
       const name = String(stakeholderName || "").trim();
 
       // Trial reset yok: cihaz varsa güncelle, yoksa oluştur + trial başlat
-      const saved = await dbRegisterDeviceOnSave({
+      await dbRegisterDeviceOnSave({
         deviceId,
         pharmacyName: name,
         trialDays: defaultDays,
@@ -547,8 +666,12 @@ const server = http.createServer(async (req, res) => {
         status: "ok",
         stakeholderId,
         deviceId,
-        createdAt: dev?.trial_started_at ? new Date(dev.trial_started_at).toISOString() : now.toISOString(),
-        expiresAt: dev?.trial_expires_at ? new Date(dev.trial_expires_at).toISOString() : addDays(now.toISOString(), defaultDays),
+        createdAt: dev?.trial_started_at
+          ? new Date(dev.trial_started_at).toISOString()
+          : now.toISOString(),
+        expiresAt: dev?.trial_expires_at
+          ? new Date(dev.trial_expires_at).toISOString()
+          : addDays(now.toISOString(), defaultDays),
         activeUntil: dev?.active_until ? new Date(dev.active_until).toISOString() : null,
         partnerId: partnerId || "",
         stakeholderName: dev?.pharmacy_name || name || "",
@@ -611,8 +734,8 @@ const server = http.createServer(async (req, res) => {
         stakeholderId,
         deviceId,
         createdAt: trialStartedIso,
-        expiresAt: trialExpiresIso,          // (eski client alanı) trial expires
-        activeUntil: activeUntilIso,         // yeni: gerçek aktiflik bitişi (trial veya lisans max)
+        expiresAt: trialExpiresIso, // (eski client alanı) trial expires
+        activeUntil: activeUntilIso, // yeni: gerçek aktiflik bitişi (trial veya lisans max)
         stakeholderName: dev.pharmacy_name || "",
         offlineGraceDays: OFFLINE_GRACE_DAYS,
         lastVerifiedAt: dev.last_verified_at ? new Date(dev.last_verified_at).toISOString() : null,
@@ -726,7 +849,7 @@ const server = http.createServer(async (req, res) => {
           createdAt: createdAtIso,
           daysSinceCreated,
           expiresAt: r.trial_expires_at ? new Date(r.trial_expires_at).toISOString() : null, // trial expires
-          activeUntil: r.active_until ? new Date(r.active_until).toISOString() : null,       // gerçek active_until
+          activeUntil: r.active_until ? new Date(r.active_until).toISOString() : null, // gerçek active_until
           partnerId: "",
           stakeholderName: r.pharmacy_name || "",
           extensionRequested: !!r.extension_requested, // open key request varsa true
@@ -798,11 +921,10 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // ================== PRODUCTS ADMIN (mevcut) ==================
+  // ================== PRODUCTS ADMIN (DB) ==================
 
-  // Admin: ürün listesini TOPLU replace — lastChangeId artsın
+  // Admin: ürün listesini TOPLU replace (DB'ye yeni kayıt olarak ekler; silme yok)
   if (req.method === "POST" && pathname === "/api/admin/products") {
-    // (isteğe bağlı admin koruma)
     if (!requireAdmin(req, res)) return;
 
     const body = await readBody(req);
@@ -823,26 +945,25 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    productsData = {
-      lastChangeId: nextChangeId(),
-      updatedAt: new Date().toISOString(),
-      items: cleaned,
-    };
+    try {
+      const inserted = await dbAdminReplaceProducts({ items: cleaned });
+      const lastChangeId = await dbGetProductsLastChangeId();
 
-    await saveProductsToDisk();
-
-    return send(res, 200, {
-      ok: true,
-      mode: "replace",
-      count: cleaned.length,
-      lastChangeId: productsData.lastChangeId,
-      updatedAt: productsData.updatedAt,
-    });
+      return send(res, 200, {
+        ok: true,
+        mode: "replace",
+        count: inserted.length,
+        lastChangeId,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error("admin/products replace db hata:", e);
+      return send(res, 500, { ok: false, error: "db_error" });
+    }
   }
 
-  // Admin: TEK ÜRÜN EKLE / GÜNCELLE
+  // Admin: TEK ÜRÜN EKLE (DB'ye yeni kayıt olarak ekler; update yok)
   if (req.method === "POST" && pathname === "/api/admin/products/add") {
-    // (isteğe bağlı admin koruma)
     if (!requireAdmin(req, res)) return;
 
     const body = await readBody(req);
@@ -854,34 +975,23 @@ const server = http.createServer(async (req, res) => {
       return send(res, 400, { ok: false, error: "gtin ve brand_name zorunlu" });
     }
 
-    const list = Array.isArray(productsData.items) ? productsData.items : [];
-    const idx = list.findIndex((x) => normalizeGtin(x.gtin) === gtin);
+    try {
+      const row = await dbAdminAddProduct({ gtin, brandName });
+      const lastChangeId = await dbGetProductsLastChangeId();
 
-    let action = "added";
-    if (idx >= 0) {
-      list[idx] = { gtin, brand_name: brandName };
-      action = "updated";
-    } else {
-      list.push({ gtin, brand_name: brandName });
+      return send(res, 200, {
+        ok: true,
+        action: "added",
+        id: Number(row.id),
+        gtin: row.gtin,
+        brand_name: row.brand_name,
+        lastChangeId,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error("admin/products/add db hata:", e);
+      return send(res, 500, { ok: false, error: "db_error" });
     }
-
-    productsData = {
-      lastChangeId: nextChangeId(),
-      updatedAt: new Date().toISOString(),
-      items: list,
-    };
-
-    await saveProductsToDisk();
-
-    return send(res, 200, {
-      ok: true,
-      action,
-      gtin,
-      brand_name: brandName,
-      total: productsData.items.length,
-      lastChangeId: productsData.lastChangeId,
-      updatedAt: productsData.updatedAt,
-    });
   }
 
   // 404
@@ -889,14 +999,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 // boot
-(async () => {
-  await loadProductsFromDisk();
-  server.listen(PORT, () => {
-    console.log(`Mini backend çalışıyor → http://localhost:${PORT}`);
-  });
-})().catch((err) => {
-  console.error("Başlangıçta load hatası:", err);
-  server.listen(PORT, () => {
-    console.log(`Mini backend (load HATALI ama yine de ayakta) → http://localhost:${PORT}`);
-  });
+server.listen(PORT, () => {
+  console.log(`Mini backend çalışıyor → http://localhost:${PORT}`);
 });
+
